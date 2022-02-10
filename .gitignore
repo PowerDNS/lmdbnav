@@ -1,0 +1,11 @@
+/bin/*
+!/bin/.placeholder
+*.mdb
+*-lock
+.DS_Store
+.env
+/tmp
+*.tmp
+.*.swp
+.*.swo
+.idea
