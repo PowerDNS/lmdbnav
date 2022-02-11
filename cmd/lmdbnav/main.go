@@ -1,12 +1,15 @@
 package main
 
 import (
+	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/PowerDNS/lmdb-go/lmdb"
 	"github.com/PowerDNS/lmdb-go/lmdbscan"
@@ -16,9 +19,10 @@ import (
 )
 
 var (
-	app   *tview.Application
-	pages *tview.Pages
-	env   *lmdb.Env
+	app     *tview.Application
+	pages   *tview.Pages
+	inspect *tview.TextView
+	env     *lmdb.Env
 )
 
 const (
@@ -142,6 +146,7 @@ func run(lmdbPath string) error {
 		return err
 	}
 
+	// Global keyboard shortcuts
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyCtrlL:
@@ -179,6 +184,7 @@ func dbiView(name string) {
 	var nextKey, nextVal []byte
 	var forwardKey, forwardVal []byte
 	var hasBinaryKeys, hasBinaryVals bool
+	var hasIntegerKeys bool
 
 	updateTable := func(back bool) {
 		_, _, _, h := pages.GetInnerRect()
@@ -197,6 +203,15 @@ func dbiView(name string) {
 			}
 			if err != nil {
 				return err
+			}
+
+			flags, err := txn.Flags(dbi)
+			if err != nil {
+				return err
+			}
+
+			if flags&LMDBIntegerKey > 0 {
+				hasIntegerKeys = true
 			}
 
 			scanner := lmdbscan.New(txn, dbi)
@@ -251,6 +266,9 @@ func dbiView(name string) {
 		hasBinaryVals = hasBinaryVals || rows.HasBinaryVals()
 
 		headers := []string{"Key"}
+		if hasIntegerKeys {
+			headers = append(headers, "Key (int)")
+		}
 		if hasBinaryKeys {
 			headers = append(headers, "Key (hex)")
 		}
@@ -273,10 +291,29 @@ func dbiView(name string) {
 		for i, r := range rows {
 			var col int
 			table.SetCell(i+1, col, &tview.TableCell{
-				Text:  fmt.Sprintf("%v ", displayASCII(r.Key)),
-				Align: tview.AlignLeft,
+				Text:      fmt.Sprintf("%v ", displayASCII(r.Key)),
+				Align:     tview.AlignLeft,
+				Reference: r, // KV, to inspect
 			})
 			col++
+			if hasIntegerKeys {
+				var v uint64
+				k := r.Key
+				switch len(k) {
+				case 4:
+					// Only one I have seen in the wild
+					v = uint64(binary.LittleEndian.Uint32(k))
+				case 8:
+					v = binary.LittleEndian.Uint64(k)
+				case 2:
+					v = uint64(binary.LittleEndian.Uint16(k))
+				}
+				table.SetCell(i+1, col, &tview.TableCell{
+					Text:  fmt.Sprintf("%d ", v),
+					Align: tview.AlignRight,
+				})
+				col++
+			}
 			if hasBinaryKeys {
 				table.SetCell(i+1, col, &tview.TableCell{
 					Text:  fmt.Sprintf("% 0x ", r.Key),
@@ -330,6 +367,15 @@ func dbiView(name string) {
 		case tcell.KeyEscape:
 			pages.SwitchToPage("databases")
 		}
+	})
+
+	table.SetSelectedFunc(func(row, column int) {
+		cell := table.GetCell(row, column)
+		if cell.Reference == nil {
+			return
+		}
+		kv := cell.Reference.(KV)
+		inspectView(kv)
 	})
 
 	table.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
@@ -441,8 +487,14 @@ func databasesView() error {
 		addDBI(RootDBIName, rootDBI)
 		for scanner.Scan() {
 			// DBI entries appear to always have 48 bytes, corresponding to
-			// the MDB_db struct.
-			// TODO: This appears to also contain db flags
+			// the MDB_db struct, but there is no truly reliable way to
+			// check if they are real DBIs. The LMDB lib only performs
+			// very light checks when you ask it to open a DBI, so this
+			// can still cause trouble if you have garbage of the right size in
+			// the root DBI. It's not even forbidden to mix DBIs and other data
+			// in this DBI.
+			// We could just interpret the MDB_db struct instead of actually
+			// opening the DBI to prevent automatically opening non-DBIs.
 			if len(scanner.Val()) != 48 {
 				continue
 			}
@@ -471,6 +523,44 @@ func databasesView() error {
 	return err
 }
 
+func inspectView(kv KV) {
+	if !pages.HasPage("inspect") {
+		inspect = tview.NewTextView()
+		inspect.SetTitle(" Inspect ")
+		inspect.SetBorderPadding(0, 0, 1, 1)
+		inspect.SetBorder(true)
+		inspect.SetDoneFunc(func(key tcell.Key) {
+			pages.HidePage("inspect")
+		})
+		pages.AddPage("inspect", inspect, false, false)
+	}
+
+	x, y, w, h := pages.GetRect()
+	inspect.SetRect(x+8, y+4, w-16, h-6)
+
+	inspect.Clear()
+	write(inspect, "=== KEY ===\n\n")
+	if isText(kv.Key) {
+		write(inspect, "%s\n\n", string(kv.Key))
+	}
+	write(inspect, "%s\n", hex.Dump(kv.Key))
+	inspect.SetTextColor(tcell.ColorLightCyan)
+	write(inspect, "=== VAL ===\n\n")
+	inspect.SetTextColor(tcell.ColorReset)
+	if isText(kv.Val) {
+		write(inspect, "%s\n\n", string(kv.Val))
+		if len(kv.Val) <= 32 {
+			write(inspect, "%s\n", hex.Dump(kv.Val))
+		}
+	} else {
+		write(inspect, "%s", hex.Dump(kv.Val))
+	}
+	inspect.ScrollToBeginning()
+
+	pages.ShowPage("inspect")
+	pages.SendToFront("inspect")
+}
+
 func closeWithLog(c io.Closer) {
 	if err := c.Close(); err != nil {
 		log.Printf("Error closing %v: %w", c, err)
@@ -479,6 +569,10 @@ func closeWithLog(c io.Closer) {
 
 func sizeBytes(st *lmdb.Stat) uint64 {
 	return uint64(st.PSize) * (st.BranchPages + st.LeafPages + st.OverflowPages)
+}
+
+func write(w io.Writer, format string, args ...interface{}) {
+	_, _ = fmt.Fprintf(inspect, format, args...)
 }
 
 type KV struct {
@@ -514,6 +608,19 @@ func isBinary(b []byte) bool {
 	return false
 }
 
+func isText(b []byte) bool {
+	s := string(b)
+	if !utf8.ValidString(s) {
+		return false
+	}
+	for _, r := range []rune(s) {
+		if r < 32 && r != '\n' && r != '\r' && r != '\t' {
+			return false
+		}
+	}
+	return true
+}
+
 func displayASCII(b []byte) string {
 	ret := make([]byte, len(b))
 	for i, ch := range b {
@@ -540,6 +647,11 @@ func displayFlags(fl uint) string {
 	return strings.Join(names, ",")
 }
 
+const (
+	LMDBIntegerKey uint = 0x08
+	LMDBIntegerDup uint = 0x20
+)
+
 var flagNames = []struct {
 	name string
 	flag uint
@@ -550,8 +662,8 @@ var flagNames = []struct {
 	{"DUPFIXED", lmdb.DupFixed},
 	{"REVERSEDUP", lmdb.ReverseDup},
 	// Not usable in Go bindings
-	{"INTEGERKEY", 0x08},
-	{"INTEGERDUP", 0x20},
+	{"INTEGERKEY", LMDBIntegerKey},
+	{"INTEGERDUP", LMDBIntegerDup},
 }
 
 var knownFlags uint = lmdb.ReverseKey | lmdb.DupSort | lmdb.DupFixed | lmdb.ReverseDup | 0x08 | 0x20
