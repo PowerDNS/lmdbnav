@@ -322,14 +322,27 @@ func dbiView(name string) {
 				})
 				col++
 			}
+			// Hex takes up 3x more space, so different limits.
+			displayVal := r.Val
+			displayValHex := r.Val
+			more := ""
+			moreHex := ""
+			if len(displayVal) > 80 {
+				displayVal = displayVal[:80]
+				more = " >"
+			}
+			if len(displayValHex) > 32 {
+				displayValHex = displayValHex[:32]
+				moreHex = " >"
+			}
 			table.SetCell(i+1, col, &tview.TableCell{
-				Text:  fmt.Sprintf("%v ", displayASCII(r.Val)),
+				Text:  fmt.Sprintf("%v%s ", displayASCII(displayVal), more),
 				Align: tview.AlignLeft,
 			})
 			col++
 			if hasBinaryVals {
 				table.SetCell(i+1, col, &tview.TableCell{
-					Text:  fmt.Sprintf("% 0x ", r.Val),
+					Text:  fmt.Sprintf("% 0x%s ", displayValHex, moreHex),
 					Align: tview.AlignLeft,
 				})
 				col++
