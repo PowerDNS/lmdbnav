@@ -131,14 +131,14 @@ func run(lmdbPath string) error {
 		return err
 	}
 
-	_, _ = fmt.Fprintf(footer, "MapSize %s", humanize.Bytes(uint64(info.MapSize)))
+	_, _ = fmt.Fprintf(footer, "MapSize %s", humanize.IBytes(uint64(info.MapSize)))
 	_, _ = fmt.Fprintf(footer, " | ")
 	_, _ = fmt.Fprintf(footer, "Used %s / %.1f %%",
-		humanize.Bytes(totalUsed),
+		humanize.IBytes(totalUsed),
 		100.0*float64(totalUsed)/float64(info.MapSize),
 	)
 	_, _ = fmt.Fprintf(footer, " | ")
-	_, _ = fmt.Fprintf(footer, "FileSize %s", humanize.Bytes(uint64(fileStat.Size())))
+	_, _ = fmt.Fprintf(footer, "FileSize %s", humanize.IBytes(uint64(fileStat.Size())))
 	_, _ = fmt.Fprintf(footer, " | ")
 	_, _ = fmt.Fprintf(footer, "LastTxnID %s", humanize.Comma(info.LastTxnID))
 
@@ -458,7 +458,7 @@ func databasesView() error {
 				Align: tview.AlignRight,
 			})
 			databases.SetCell(row, 2, &tview.TableCell{
-				Text:  " " + humanize.Bytes(sizeBytes(st)),
+				Text:  " " + humanize.IBytes(sizeBytes(st)),
 				Align: tview.AlignRight,
 			})
 			databases.SetCell(row, 3, &tview.TableCell{
