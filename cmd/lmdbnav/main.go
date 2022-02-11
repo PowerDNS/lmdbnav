@@ -22,6 +22,7 @@ var (
 	app     *tview.Application
 	pages   *tview.Pages
 	inspect *tview.TextView
+	footer  *tview.TextView
 	env     *lmdb.Env
 )
 
@@ -98,7 +99,7 @@ func run(lmdbPath string) error {
 	_ = info
 
 	pages = tview.NewPages()
-	footer := tview.NewTextView()
+	footer = tview.NewTextView()
 	flex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(pages, 0, 1, true).
@@ -131,16 +132,16 @@ func run(lmdbPath string) error {
 		return err
 	}
 
-	_, _ = fmt.Fprintf(footer, "MapSize %s", humanize.IBytes(uint64(info.MapSize)))
-	_, _ = fmt.Fprintf(footer, " | ")
-	_, _ = fmt.Fprintf(footer, "Used %s / %.1f %%",
+	writef(footer, "MapSize %s", humanize.IBytes(uint64(info.MapSize)))
+	writef(footer, " | ")
+	writef(footer, "Used %s / %.1f %%",
 		humanize.IBytes(totalUsed),
 		100.0*float64(totalUsed)/float64(info.MapSize),
 	)
-	_, _ = fmt.Fprintf(footer, " | ")
-	_, _ = fmt.Fprintf(footer, "FileSize %s", humanize.IBytes(uint64(fileStat.Size())))
-	_, _ = fmt.Fprintf(footer, " | ")
-	_, _ = fmt.Fprintf(footer, "LastTxnID %s", humanize.Comma(info.LastTxnID))
+	writef(footer, " | ")
+	writef(footer, "FileSize %s", humanize.IBytes(uint64(fileStat.Size())))
+	writef(footer, " | ")
+	writef(footer, "LastTxnID %s", humanize.Comma(info.LastTxnID))
 
 	if err := databasesView(); err != nil {
 		return err
@@ -337,7 +338,8 @@ func dbiView(name string) {
 
 		if hasNextPage {
 			// Sentinel to load next page
-			table.SetCell(table.GetRowCount()+1, 0, &tview.TableCell{
+			srow := table.GetRowCount() + 1
+			table.SetCell(srow, 0, &tview.TableCell{
 				Text:  "",
 				Align: tview.AlignLeft,
 			})
@@ -357,7 +359,6 @@ func dbiView(name string) {
 			nextVal = forwardVal
 			updateTable(false)
 		} else if row == 0 {
-			// FIXME: This only allows going back one page
 			updateTable(true)
 		}
 	})
@@ -370,7 +371,7 @@ func dbiView(name string) {
 	})
 
 	table.SetSelectedFunc(func(row, column int) {
-		cell := table.GetCell(row, column)
+		cell := table.GetCell(row, 0)
 		if cell.Reference == nil {
 			return
 		}
@@ -539,21 +540,21 @@ func inspectView(kv KV) {
 	inspect.SetRect(x+8, y+4, w-16, h-6)
 
 	inspect.Clear()
-	write(inspect, "=== KEY ===\n\n")
+	writef(inspect, "=== KEY ===\n\n")
 	if isText(kv.Key) {
-		write(inspect, "%s\n\n", string(kv.Key))
+		writef(inspect, "%s\n\n", string(kv.Key))
 	}
-	write(inspect, "%s\n", hex.Dump(kv.Key))
+	writef(inspect, "%s\n", hex.Dump(kv.Key))
 	inspect.SetTextColor(tcell.ColorLightCyan)
-	write(inspect, "=== VAL ===\n\n")
+	writef(inspect, "=== VAL ===\n\n")
 	inspect.SetTextColor(tcell.ColorReset)
 	if isText(kv.Val) {
-		write(inspect, "%s\n\n", string(kv.Val))
+		writef(inspect, "%s\n\n", string(kv.Val))
 		if len(kv.Val) <= 32 {
-			write(inspect, "%s\n", hex.Dump(kv.Val))
+			writef(inspect, "%s\n", hex.Dump(kv.Val))
 		}
 	} else {
-		write(inspect, "%s", hex.Dump(kv.Val))
+		writef(inspect, "%s", hex.Dump(kv.Val))
 	}
 	inspect.ScrollToBeginning()
 
@@ -571,8 +572,13 @@ func sizeBytes(st *lmdb.Stat) uint64 {
 	return uint64(st.PSize) * (st.BranchPages + st.LeafPages + st.OverflowPages)
 }
 
-func write(w io.Writer, format string, args ...interface{}) {
-	_, _ = fmt.Fprintf(inspect, format, args...)
+func writef(w io.Writer, format string, args ...interface{}) {
+	_, _ = fmt.Fprintf(w, format, args...)
+}
+
+func debugf(format string, args ...interface{}) {
+	footer.Clear()
+	_, _ = fmt.Fprintf(footer, "DEBUG: "+format, args...)
 }
 
 type KV struct {
