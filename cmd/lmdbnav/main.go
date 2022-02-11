@@ -298,6 +298,7 @@ func dbiView(name string) {
 			})
 			col++
 			if hasIntegerKeys {
+				// TODO: use native endian instead of hardcoded little endian
 				var v uint64
 				k := r.Key
 				switch len(k) {
@@ -675,7 +676,6 @@ var flagNames = []struct {
 	name string
 	flag uint
 }{
-	/*(MDB_REVERSEKEY|MDB_DUPSORT|MDB_INTEGERKEY|MDB_DUPFIXED|\ MDB_INTEGERDUP|MDB_REVERSEDUP|MDB_CREATE) */
 	{"REVERSEKEY", lmdb.ReverseKey},
 	{"DUPSORT", lmdb.DupSort},
 	{"DUPFIXED", lmdb.DupFixed},
@@ -685,4 +685,4 @@ var flagNames = []struct {
 	{"INTEGERDUP", LMDBIntegerDup},
 }
 
-var knownFlags uint = lmdb.ReverseKey | lmdb.DupSort | lmdb.DupFixed | lmdb.ReverseDup | 0x08 | 0x20
+var knownFlags uint = lmdb.ReverseKey | lmdb.DupSort | lmdb.DupFixed | lmdb.ReverseDup | LMDBIntegerKey | LMDBIntegerDup
