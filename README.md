@@ -2,4 +2,8 @@
 
 A terminal UI to inspect LMDB database files.
 
-![Screenshot](screenshot.png)
+![Databases](screenshots/databases.png)
+
+![Data](screenshots/data.png)
+
+![Inspect](screenshots/inspect.png)
