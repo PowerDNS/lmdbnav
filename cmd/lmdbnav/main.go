@@ -404,6 +404,12 @@ func dbiView(name string) {
 			// TODO: Support End
 			return nil
 		}
+		switch event.Rune() {
+		case 'R', 'r':
+			// Reload view from db
+			updateTable(false)
+			return nil
+		}
 		return event
 	})
 
