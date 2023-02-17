@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/PowerDNS/lmdb-go/lmdb"
@@ -16,6 +17,7 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
+	"github.com/spf13/pflag"
 )
 
 var (
@@ -24,6 +26,8 @@ var (
 	inspect *tview.TextView
 	footer  *tview.TextView
 	env     *lmdb.Env
+
+	withLS = pflag.Bool("ls", false, "Enable LightningStream header support")
 )
 
 const (
@@ -35,13 +39,16 @@ const (
 )
 
 func main() {
+	pflag.Parse()
+	args := pflag.Args()
+
 	// Get connect string from the command line.
-	if len(os.Args) < 2 {
+	if len(args) < 1 {
 		log.Fatalf("USAGE: %s <lmdb-path>", os.Args[0])
 		return
 	}
 
-	if err := run(os.Args[1]); err != nil {
+	if err := run(args[0]); err != nil {
 		log.Fatalf("Error: %s", err)
 	}
 }
@@ -266,12 +273,20 @@ func dbiView(name string) {
 		hasBinaryKeys = hasBinaryKeys || rows.HasBinaryKeys()
 		hasBinaryVals = hasBinaryVals || rows.HasBinaryVals()
 
+		// This we determine per page, as all keys should pass this
+		hasLS := *withLS && rows.CouldBeLS()
+
 		headers := []string{"Key"}
 		if hasIntegerKeys {
 			headers = append(headers, "Key (int)")
 		}
 		if hasBinaryKeys {
 			headers = append(headers, "Key (hex)")
+		}
+		if hasLS {
+			headers = append(headers, "LS time")
+			headers = append(headers, "LS txn")
+			headers = append(headers, "Fl")
 		}
 		headers = append(headers, "Val")
 		if hasBinaryVals {
@@ -323,9 +338,32 @@ func dbiView(name string) {
 				})
 				col++
 			}
-			// Hex takes up 3x more space, so different limits.
 			displayVal := r.Val
 			displayValHex := r.Val
+			if hasLS {
+				ts, txnID, flags, _, appVal := splitLS(r.Val)
+				displayVal = appVal
+				displayValHex = appVal
+				// time
+				table.SetCell(i+1, col, &tview.TableCell{
+					Text:  ts.Format(time.RFC3339Nano),
+					Align: tview.AlignLeft,
+				})
+				col++
+				// txnID
+				table.SetCell(i+1, col, &tview.TableCell{
+					Text:  fmt.Sprintf("%d", txnID),
+					Align: tview.AlignLeft,
+				})
+				col++
+				// flags
+				table.SetCell(i+1, col, &tview.TableCell{
+					Text:  fmt.Sprintf("%02X", flags),
+					Align: tview.AlignLeft,
+				})
+				col++
+			}
+			// Hex takes up 3x more space, so different limits.
 			more := ""
 			moreHex := ""
 			if len(displayVal) > 80 {
@@ -566,15 +604,33 @@ func inspectView(kv KV) {
 	}
 	writef(inspect, "%s\n", hex.Dump(kv.Key))
 	inspect.SetTextColor(tcell.ColorLightCyan)
-	writef(inspect, "=== VAL ===\n\n")
+	displayVal := kv.Val
+	valName := "VALUE"
+	if *withLS && isLS(kv.Val) {
+		ts, txnID, flags, hLen, appVal := splitLS(kv.Val)
+		header := kv.Val[:hLen]
+		writef(inspect, "=== LS HEADER ===\n\n")
+		writef(inspect, "Version: %d\n", header[16])
+		writef(inspect, "Time:    %s (%s ago)\n",
+			ts.Format(time.RFC3339Nano),
+			time.Since(ts).Round(time.Second))
+		writef(inspect, "TxnID:   %d\n", txnID)
+		writef(inspect, "Flags:   %02X\n", flags)
+		writef(inspect, "Length:  %d\n", hLen)
+		writef(inspect, "\n")
+		writef(inspect, "%s\n", hex.Dump(header))
+		displayVal = appVal
+		valName = "APP VALUE"
+	}
+	writef(inspect, "=== %s ===\n\n", valName)
 	inspect.SetTextColor(tcell.ColorReset)
-	if isText(kv.Val) {
-		writef(inspect, "%s\n\n", string(kv.Val))
-		if len(kv.Val) <= 32 {
-			writef(inspect, "%s\n", hex.Dump(kv.Val))
+	if isText(displayVal) {
+		writef(inspect, "%s\n\n", string(displayVal))
+		if len(displayVal) <= 32 {
+			writef(inspect, "%s\n", hex.Dump(displayVal))
 		}
 	} else {
-		writef(inspect, "%s", hex.Dump(kv.Val))
+		writef(inspect, "%s", hex.Dump(displayVal))
 	}
 	inspect.ScrollToBeginning()
 
@@ -625,6 +681,15 @@ func (kvl KVList) HasBinaryVals() bool {
 	return false
 }
 
+func (kvl KVList) CouldBeLS() bool {
+	for _, kv := range kvl {
+		if !isLS(kv.Val) {
+			return false
+		}
+	}
+	return true
+}
+
 func isBinary(b []byte) bool {
 	for _, ch := range b {
 		if ch < 32 || ch > 127 {
@@ -645,6 +710,50 @@ func isText(b []byte) bool {
 		}
 	}
 	return true
+}
+
+func isLS(b []byte) bool {
+	if len(b) < 24 {
+		return false
+	}
+	extra := int(binary.BigEndian.Uint16(b[22:24]))
+	if len(b) < 24+8*extra {
+		return false
+	}
+	// Can be 0 if the timestamp was unknown
+	tsVal := int64(binary.BigEndian.Uint64(b[:8]))
+	if tsVal != 0 {
+		ts := time.Unix(0, tsVal).UTC()
+		if ts.Before(time.Date(2022, 1, 1, 0, 0, 0, 0, time.UTC)) ||
+			ts.After(time.Now().Add(30*24*time.Hour)) {
+			return false // not a likely timestamp
+		}
+	}
+	txnID := int64(binary.BigEndian.Uint64(b[8:16]))
+	if txnID > 1<<40 {
+		return false // unlikely LMDB txnID
+	}
+	return true
+}
+
+func splitLS(b []byte) (ts time.Time, txnID int64, flags uint8, hLen int, val []byte) {
+	val = b
+	offset := 24
+	if len(b) < offset {
+		return
+	}
+	extra := int(binary.BigEndian.Uint16(b[22:24]))
+	offset += 8 * extra
+	if len(b) < offset {
+		return
+	}
+	hLen = offset
+	val = b[offset:]
+	tsVal := int64(binary.BigEndian.Uint64(b[:8]))
+	ts = time.Unix(0, tsVal).UTC()
+	txnID = int64(binary.BigEndian.Uint64(b[8:16]))
+	flags = b[17]
+	return
 }
 
 func displayASCII(b []byte) string {
