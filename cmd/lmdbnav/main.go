@@ -602,6 +602,10 @@ func inspectView(kv KV) {
 	if isText(kv.Key) {
 		writef(inspect, "%s\n\n", string(kv.Key))
 	}
+	if be, le, ok := asUint(kv.Key); ok {
+		writef(inspect, "As uint (big endian):    %d\n", be)
+		writef(inspect, "As uint (little endian): %d\n\n", le)
+	}
 	writef(inspect, "%s\n", hex.Dump(kv.Key))
 	inspect.SetTextColor(tcell.ColorLightCyan)
 	displayVal := kv.Val
@@ -615,7 +619,11 @@ func inspectView(kv KV) {
 			ts.Format(time.RFC3339Nano),
 			time.Since(ts).Round(time.Second))
 		writef(inspect, "TxnID:   %d\n", txnID)
-		writef(inspect, "Flags:   %02X\n", flags)
+		writef(inspect, "Flags:   %02X", flags)
+		if flags&0x01 > 0 {
+			writef(inspect, " Deleted")
+		}
+		writef(inspect, "\n")
 		writef(inspect, "Length:  %d\n", hLen)
 		writef(inspect, "\n")
 		writef(inspect, "%s\n", hex.Dump(header))
@@ -624,6 +632,10 @@ func inspectView(kv KV) {
 	}
 	writef(inspect, "=== %s ===\n\n", valName)
 	inspect.SetTextColor(tcell.ColorReset)
+	if be, le, ok := asUint(displayVal); ok {
+		writef(inspect, "As uint (big endian):    %d\n", be)
+		writef(inspect, "As uint (little endian): %d\n\n", le)
+	}
 	if isText(displayVal) {
 		writef(inspect, "%s\n\n", string(displayVal))
 		if len(displayVal) <= 32 {
@@ -754,6 +766,19 @@ func splitLS(b []byte) (ts time.Time, txnID int64, flags uint8, hLen int, val []
 	txnID = int64(binary.BigEndian.Uint64(b[8:16]))
 	flags = b[17]
 	return
+}
+
+func asUint(b []byte) (be, le uint64, ok bool) {
+	switch len(b) {
+	case 2:
+		return uint64(binary.BigEndian.Uint16(b)), uint64(binary.LittleEndian.Uint16(b)), true
+	case 4:
+		return uint64(binary.BigEndian.Uint32(b)), uint64(binary.LittleEndian.Uint32(b)), true
+	case 8:
+		return binary.BigEndian.Uint64(b), binary.LittleEndian.Uint64(b), true
+	default:
+		return 0, 0, false
+	}
 }
 
 func displayASCII(b []byte) string {
