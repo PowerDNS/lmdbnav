@@ -191,6 +191,8 @@ func dbiView(name string) {
 
 	var nextKey, nextVal []byte
 	var forwardKey, forwardVal []byte
+	var skipRows = 0
+	var skipToEnd bool
 	var hasBinaryKeys, hasBinaryVals bool
 	var hasIntegerKeys bool
 
@@ -234,6 +236,14 @@ func dbiView(name string) {
 			if back {
 				var next uint = lmdb.Next
 				scanner.SetNext(nextKey, nextVal, lmdb.Prev, lmdb.Prev)
+				for i := 0; i < skipRows; i++ {
+					if !scanner.Scan() {
+						next = lmdb.First
+						wasFirst = true
+						break
+					}
+				}
+				skipRows = 0
 				for i := 0; i < maxRows+1; i++ {
 					if !scanner.Scan() {
 						next = lmdb.First
@@ -244,6 +254,20 @@ func dbiView(name string) {
 				scanner.SetNext(nextKey, nextVal, next, lmdb.Next)
 				nextKey = scanner.Key()
 				nextVal = scanner.Val()
+			} else {
+				if skipToEnd {
+					scanner.Set(nil, nil, lmdb.Last)
+					skipToEnd = false
+				}
+				for i := 0; i < skipRows; i++ {
+					if !scanner.Scan() {
+						scanner.Set(nil, nil, lmdb.Last)
+						break
+					}
+				}
+				nextKey = scanner.Key()
+				nextVal = scanner.Val()
+				skipRows = 0
 			}
 
 			row := 1 // 0 is the header
@@ -439,14 +463,39 @@ func dbiView(name string) {
 			updateTable(false)
 			return nil
 		case tcell.KeyEnd:
-			// TODO: Support End
+			nextKey = nil
+			nextVal = nil
+			skipToEnd = true
+			updateTable(false)
 			return nil
 		}
-		switch event.Rune() {
+		switch r := event.Rune(); r {
 		case 'R', 'r':
 			// Reload view from db
 			updateTable(false)
 			return nil
+		case ']':
+			// Skip 1000 forward
+			skipRows = 1000
+			updateTable(false)
+			return nil
+		case '}':
+			// Skip 10000 forward
+			skipRows = 10000
+			updateTable(false)
+			return nil
+		case '[':
+			// Skip 1000 backward
+			skipRows = 1000
+			updateTable(true)
+			return nil
+		case '{':
+			// Skip 10000 backward
+			skipRows = 10000
+			updateTable(true)
+			return nil
+		default:
+			//print(r)
 		}
 		return event
 	})
