@@ -2,7 +2,7 @@
 
 A terminal UI to inspect LMDB database files.
 
-This is a tool that we use internally to debug LMDB databases. We decided to Open Source it, since it can be useful to others.
+This is a tool that we use internally to debug LMDB databases. We decided to open source it, since it can be useful to others.
 
 Contributions are welcome.
 
@@ -18,7 +18,7 @@ $ GOBIN=/path/to/target/bin go install ./cmd/lmdbnav
 $ lmdbnav /path/to/lmdb
 ```
 
-To enables support for [Lightning Stream](https://github.com/PowerDNS/lmdbnav) headers:
+To enable support for [Lightning Stream](https://github.com/PowerDNS/lmdbnav) headers:
 
 ```
 $ lmdbnav --ls /path/to/lmdb
