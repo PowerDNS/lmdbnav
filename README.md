@@ -8,8 +8,16 @@ Contributions are welcome.
 
 ## Installation
 
+From a local source checkout:
+
 ```
 $ GOBIN=/path/to/target/bin go install ./cmd/lmdbnav
+```
+
+Or directly, without any local checkout:
+
+```
+$ GOBIN=/path/to/target/bin go install github.com/PowerDNS/lmdbnav/cmd/lmdbnav@latest
 ```
 
 ## Usage
