@@ -8,17 +8,31 @@ Contributions are welcome.
 
 ## Installation
 
-From a local source checkout:
+lmdbnav is written in Go and embeds the LMDB database engine (written in C),
+so building it requires two things:
+
+1. **Go 1.21 or newer.** Download it from <https://go.dev/dl/>, or use a
+   package manager: `brew install go` (macOS) or `sudo apt install golang`
+   (Debian/Ubuntu). Verify with `go version`.
+2. **A C compiler.** On macOS run `xcode-select --install`, on Debian/Ubuntu
+   `sudo apt install build-essential`, on Fedora `sudo dnf install gcc`.
+
+Then this single command downloads, builds and installs lmdbnav:
 
 ```
-$ GOBIN=/path/to/target/bin go install ./cmd/lmdbnav
+$ go install github.com/PowerDNS/lmdbnav/cmd/lmdbnav@latest
 ```
 
-Or directly, without any local checkout:
+The binary is installed as `~/go/bin/lmdbnav`. Either add `~/go/bin` to your
+`PATH`, run it by its full path, or point `GOBIN` at a directory of your
+choice, e.g.:
 
 ```
-$ GOBIN=/path/to/target/bin go install github.com/PowerDNS/lmdbnav/cmd/lmdbnav@latest
+$ GOBIN=/usr/local/bin go install github.com/PowerDNS/lmdbnav/cmd/lmdbnav@latest
 ```
+
+From a local source checkout, use the same commands with the package path
+replaced by `./cmd/lmdbnav`.
 
 ## Usage
 

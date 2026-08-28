@@ -1,3 +1,5 @@
+github.com/PowerDNS/lmdb-go/v2 v2.0.0-20260828152212-7d658404dccc h1:C5Ph4lIwBpHBSRI2ikVAAY1v1oSCsyhDZj/K1JsjTus=
+github.com/PowerDNS/lmdb-go/v2 v2.0.0-20260828152212-7d658404dccc/go.mod h1:aMrVsdgQprZdFwjBETUVX+38d5Io4jrQf2m+yxRwCgA=
 github.com/dustin/go-humanize v1.0.0 h1:VSnTsYCnlFHaM2/igO1h6X3HA71jcobQuxemgkq4zYo=
 github.com/dustin/go-humanize v1.0.0/go.mod h1:HtrtbFcZ19U5GC7JDqmcUSB87Iq5E25KnS6fMYU6eOk=
 github.com/gdamore/encoding v1.0.0 h1:+7OoQ1Bc6eTm5niUzBa0Ctsh6JbMW6Ra+YNuAtDBdko=
