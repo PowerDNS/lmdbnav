@@ -9,11 +9,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
-	"github.com/PowerDNS/lmdb-go/lmdb"
-	"github.com/PowerDNS/lmdb-go/lmdbscan"
+	"github.com/PowerDNS/lmdb-go/v2/lmdb"
+	"github.com/PowerDNS/lmdb-go/v2/lmdbscan"
 	"github.com/dustin/go-humanize"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -27,7 +28,10 @@ var (
 	footer  *tview.TextView
 	env     *lmdb.Env
 
-	withLS = pflag.Bool("ls", false, "Enable LightningStream header support")
+	withLS       = pflag.Bool("ls", false, "Enable LightningStream header support")
+	prevSnapshot = pflag.Bool("prev-snapshot", false,
+		"Open the previous snapshot instead of the latest one, e.g. when the "+
+			"last transaction is corrupted (LMDB 1.0 format databases only)")
 )
 
 const (
@@ -61,6 +65,9 @@ func run(lmdbPath string) error {
 		return err
 	}
 	var envFlags uint = lmdb.Readonly
+	if *prevSnapshot {
+		envFlags |= lmdb.PrevSnapshot
+	}
 	lmdbFilePath := lmdbPath
 	if !fileStat.IsDir() {
 		dir, fname := filepath.Split(lmdbPath)
@@ -95,6 +102,9 @@ func run(lmdbPath string) error {
 
 	err = env.Open(lmdbPath, envFlags, 0666)
 	if err != nil {
+		if *prevSnapshot && lmdb.IsErrnoSys(err, syscall.EINVAL) {
+			return fmt.Errorf("%w (--prev-snapshot only works with LMDB 1.0 format databases)", err)
+		}
 		return err
 	}
 	defer closeWithLog(env)
@@ -123,9 +133,17 @@ func run(lmdbPath string) error {
 		scanner := lmdbscan.New(txn, rootDBI)
 		defer scanner.Close()
 		for scanner.Scan() {
-			name := string(scanner.Key())
+			if len(scanner.Val()) != 48 {
+				continue // not a DBI record, see databasesView
+			}
+			name, ok := dbiKeyName(scanner.Key())
+			if !ok {
+				continue
+			}
 			dbi, err := txn.OpenDBI(name, 0)
-
+			if err != nil {
+				continue
+			}
 			st, err := txn.Stat(dbi)
 			if err != nil {
 				return err
@@ -139,6 +157,15 @@ func run(lmdbPath string) error {
 		return err
 	}
 
+	engineVer, err := env.EngineVersion()
+	if err != nil {
+		return err
+	}
+	writef(footer, "LMDB %d.%d.%d", engineVer.Major, engineVer.Minor, engineVer.Patch)
+	if *prevSnapshot {
+		writef(footer, " (prev snapshot)")
+	}
+	writef(footer, " | ")
 	writef(footer, "MapSize %s", humanize.IBytes(uint64(info.MapSize)))
 	writef(footer, " | ")
 	writef(footer, "Used %s / %.1f %%",
@@ -595,7 +622,8 @@ func databasesView() error {
 		addDBI(RootDBIName, rootDBI)
 		for scanner.Scan() {
 			// DBI entries appear to always have 48 bytes, corresponding to
-			// the MDB_db struct, but there is no truly reliable way to
+			// the MDB_db struct (identical layout in the 0.9 and 1.0
+			// formats), but there is no truly reliable way to
 			// check if they are real DBIs. The LMDB lib only performs
 			// very light checks when you ask it to open a DBI, so this
 			// can still cause trouble if you have garbage of the right size in
@@ -606,7 +634,10 @@ func databasesView() error {
 			if len(scanner.Val()) != 48 {
 				continue
 			}
-			name := string(scanner.Key())
+			name, ok := dbiKeyName(scanner.Key())
+			if !ok {
+				continue
+			}
 			dbi, err := txn.OpenDBI(name, 0)
 			if err != nil {
 				continue
@@ -701,12 +732,26 @@ func inspectView(kv KV) {
 
 func closeWithLog(c io.Closer) {
 	if err := c.Close(); err != nil {
-		log.Printf("Error closing %v: %w", c, err)
+		log.Printf("Error closing %v: %v", c, err)
 	}
 }
 
 func sizeBytes(st *lmdb.Stat) uint64 {
 	return uint64(st.PSize) * (st.BranchPages + st.LeafPages + st.OverflowPages)
+}
+
+// dbiKeyName returns the database name for a key in the root DBI, or
+// ok=false if the key cannot be a database name on the current engine.
+// LMDB 1.0 stores the name's terminating null byte in the key, LMDB 0.9
+// stores the bare name.
+func dbiKeyName(key []byte) (name string, ok bool) {
+	if env.Format() == lmdb.V10 {
+		if len(key) == 0 || key[len(key)-1] != 0 {
+			return "", false
+		}
+		key = key[:len(key)-1]
+	}
+	return string(key), true
 }
 
 func writef(w io.Writer, format string, args ...interface{}) {
