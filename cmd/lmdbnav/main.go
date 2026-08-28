@@ -701,7 +701,7 @@ func inspectView(kv KV) {
 
 func closeWithLog(c io.Closer) {
 	if err := c.Close(); err != nil {
-		log.Printf("Error closing %v: %w", c, err)
+		log.Printf("Error closing %v: %v", c, err)
 	}
 }
 
