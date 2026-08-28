@@ -3,7 +3,7 @@ module github.com/PowerDNS/lmdbnav
 go 1.21
 
 require (
-	github.com/PowerDNS/lmdb-go/v2 v2.0.0-20260828152212-7d658404dccc
+	github.com/PowerDNS/lmdb-go/v2 v2.0.0
 	github.com/dustin/go-humanize v1.0.0
 	github.com/gdamore/tcell/v2 v2.4.1-0.20210905002822-f057f0a857a1
 	github.com/rivo/tview v0.0.0-20220129131435-1f7581b67bd1
@@ -19,3 +19,6 @@ require (
 	golang.org/x/term v0.0.0-20210220032956-6a3ed077a48d // indirect
 	golang.org/x/text v0.3.6 // indirect
 )
+
+// lmdb-go v2 is under development and not published yet
+replace github.com/PowerDNS/lmdb-go/v2 => ../lmdb-go
