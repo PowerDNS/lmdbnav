@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -27,7 +28,10 @@ var (
 	footer  *tview.TextView
 	env     *lmdb.Env
 
-	withLS = pflag.Bool("ls", false, "Enable LightningStream header support")
+	withLS       = pflag.Bool("ls", false, "Enable LightningStream header support")
+	prevSnapshot = pflag.Bool("prev-snapshot", false,
+		"Open the previous snapshot instead of the latest one, e.g. when the "+
+			"last transaction is corrupted (LMDB 1.0 format databases only)")
 )
 
 const (
@@ -61,6 +65,9 @@ func run(lmdbPath string) error {
 		return err
 	}
 	var envFlags uint = lmdb.Readonly
+	if *prevSnapshot {
+		envFlags |= lmdb.PrevSnapshot
+	}
 	lmdbFilePath := lmdbPath
 	if !fileStat.IsDir() {
 		dir, fname := filepath.Split(lmdbPath)
@@ -95,6 +102,9 @@ func run(lmdbPath string) error {
 
 	err = env.Open(lmdbPath, envFlags, 0666)
 	if err != nil {
+		if *prevSnapshot && lmdb.IsErrnoSys(err, syscall.EINVAL) {
+			return fmt.Errorf("%w (--prev-snapshot only works with LMDB 1.0 format databases)", err)
+		}
 		return err
 	}
 	defer closeWithLog(env)
@@ -152,6 +162,9 @@ func run(lmdbPath string) error {
 		return err
 	}
 	writef(footer, "LMDB %d.%d.%d", engineVer.Major, engineVer.Minor, engineVer.Patch)
+	if *prevSnapshot {
+		writef(footer, " (prev snapshot)")
+	}
 	writef(footer, " | ")
 	writef(footer, "MapSize %s", humanize.IBytes(uint64(info.MapSize)))
 	writef(footer, " | ")
