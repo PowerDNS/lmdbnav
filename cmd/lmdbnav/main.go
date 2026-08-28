@@ -745,7 +745,7 @@ func sizeBytes(st *lmdb.Stat) uint64 {
 // LMDB 1.0 stores the name's terminating null byte in the key, LMDB 0.9
 // stores the bare name.
 func dbiKeyName(key []byte) (name string, ok bool) {
-	if env.LMDBVersion() == lmdb.V10 {
+	if env.Format() == lmdb.V10 {
 		if len(key) == 0 || key[len(key)-1] != 0 {
 			return "", false
 		}
