@@ -21,4 +21,4 @@ require (
 )
 
 // lmdb-go v2 is under development and not published yet
-replace github.com/PowerDNS/lmdb-go/v2 => ../lmdb-go
+replace github.com/PowerDNS/lmdb-go/v2 => github.com/wojas/lmdb-go/v2 v2.0.0-20260828152212-7d658404dccc
